@@ -1,0 +1,20 @@
+<!-- Travo – rotating Earth background. __ARC__ is replaced by app.py -->
+<body style="margin:0;background:transparent;overflow:hidden;color:#9fb2d8;font-family:sans-serif"><div id="g"></div>
+<script src="https://unpkg.com/globe.gl"></script>
+<script>
+(function(){
+ if(typeof Globe==='undefined'){document.body.innerHTML='<p style="text-align:center;padding-top:120px">Globe could not load (check internet / ad-blocker).</p>';return}
+ const A=__ARC__,el=document.getElementById('g'),ALT=innerWidth<innerHeight?3.0:1.8;
+ const G=Globe({rendererConfig:{antialias:true,alpha:true}})(el).backgroundColor('rgba(0,0,0,0)')
+  .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
+  .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
+  .atmosphereColor('#5ac8ff').atmosphereAltitude(0.2)
+  .arcColor(()=>['#ffd34d','#37c6ff']).arcStroke(.5).arcDashLength(.4).arcDashGap(.2).arcDashAnimateTime(2500)
+  .pointColor(()=>'#ffd34d').pointRadius(.5).pointAltitude(.01);
+ const sz=()=>G.width(innerWidth).height(innerHeight);sz();addEventListener('resize',sz);
+ const c=G.controls();c.autoRotate=true;c.autoRotateSpeed=.15;c.enableZoom=false;
+ if(A){G.arcsData([A]).pointsData([{lat:A.startLat,lng:A.startLng},{lat:A.endLat,lng:A.endLng}]);
+  G.pointOfView({lat:(A.startLat+A.endLat)/2,lng:(A.startLng+A.endLng)/2,altitude:ALT})}
+ else G.pointOfView({lat:20,lng:78,altitude:ALT});
+})();
+</script></body>

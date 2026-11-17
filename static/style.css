@@ -1,0 +1,21 @@
+/* Travo – styles (loaded by app.py) */
+html,body{background:#050a1a!important}
+.stApp{background:radial-gradient(circle at 50% 35%,#0d1f4d 0%,#050a1a 75%)!important}
+[data-testid="stAppViewContainer"],[data-testid="stMain"],[data-testid="stHeader"],.main{background:transparent!important}
+/* full-screen globe behind everything */
+.st-key-globe{height:0!important;min-height:0!important;margin:0!important;padding:0!important}
+.st-key-globe iframe{position:fixed!important;top:0;left:0;width:100vw!important;height:100vh!important;border:0;z-index:0;pointer-events:none}
+[data-testid="stMainBlockContainer"],.block-container{position:relative;z-index:1;max-width:1050px;padding-top:4.5rem}
+.gt-bar{position:fixed;top:0;left:0;right:0;z-index:999991;height:54px;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(5,10,26,.9),rgba(5,10,26,0));pointer-events:none}
+.gt-bar span{font-size:28px;font-weight:800;letter-spacing:.5px;background:linear-gradient(90deg,#37c6ff,#a79bff);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 2px 6px #000)}
+[data-testid="InputInstructions"]{display:none!important}
+[data-testid="stForm"]{border:0!important;background:transparent!important;padding:0!important}
+/* results cards: readable glass */
+[data-testid="stVerticalBlockBorderWrapper"]{background:rgba(8,14,34,.62);backdrop-filter:blur(8px);border-radius:16px}
+/* input panel: fully transparent over the globe */
+.st-key-panel,.st-key-panel [data-testid="stVerticalBlockBorderWrapper"]{background:transparent!important;backdrop-filter:none!important;border:0!important}
+.st-key-panel label,.st-key-panel p{color:#fff!important;text-shadow:0 1px 8px #000}
+[data-baseweb="input"]{background:rgba(5,10,26,.62)!important;border:1px solid rgba(120,200,255,.75)!important;border-radius:10px!important}
+[data-baseweb="base-input"],[data-baseweb="input"] input{background:transparent!important;color:#fff!important}
+[data-baseweb="input"] input::placeholder{color:#b9cdf2!important;opacity:1}
+[data-testid="stPills"] button{background:rgba(5,10,26,.62)!important}
