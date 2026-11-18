@@ -15,19 +15,87 @@ function gc(a,b,n=60){const r=x=>x*Math.PI/180,d=x=>x*180/Math.PI,[p1,l1,p2,l2]=
   o.push([d(Math.atan2(z,Math.hypot(x,y))),d(Math.atan2(y,x))])}return o}
 function midPt(p){let t=0,s=[];for(let i=1;i<p.length;i++){const d=Math.hypot(p[i][0]-p[i-1][0],(p[i][1]-p[i-1][1])*Math.cos(p[i][0]*Math.PI/180));s.push(d);t+=d}
  let a=0;for(let i=0;i<s.length;i++){if(a+s[i]>=t/2){const f=(t/2-a)/(s[i]||1);return[p[i][0]+(p[i+1][0]-p[i][0])*f,p[i][1]+(p[i+1][1]-p[i][1])*f]}a+=s[i]}return p[Math.floor(p.length/2)]}
-async function road(){const mid=D.route.slice(1,-1).filter((_,i,a)=>i%Math.ceil(a.length/6)==0),w=[D.from,...mid,D.to];
- try{const r=await fetch('https://router.project-osrm.org/route/v1/driving/'+w.map(p=>p.lon+','+p.lat).join(';')+'?overview=full&geometries=geojson');
-  const j=await r.json();if(j.routes&&j.routes[0])return j.routes[0].geometry.coordinates.map(([x,y])=>[y,x])}catch(e){}return null}
+/* ---- real railway line from OpenStreetMap (Overpass) + own shortest-path routing ---- */
+function hav(a,b,c,d){const r=Math.PI/180,x=(c-a)*r,y=(d-b)*r*Math.cos((a+c)/2*r);return Math.hypot(x,y)*6371}
+class Heap{constructor(){this.a=[]}get n(){return this.a.length}
+ push(k,v){const a=this.a;a.push([k,v]);let i=a.length-1;while(i>0){const p=(i-1)>>1;if(a[p][0]<=a[i][0])break;[a[p],a[i]]=[a[i],a[p]];i=p}}
+ pop(){const a=this.a,t=a[0],l=a.pop();if(a.length){a[0]=l;let i=0;for(;;){let m=i,L=2*i+1,R=L+1;if(L<a.length&&a[L][0]<a[m][0])m=L;if(R<a.length&&a[R][0]<a[m][0])m=R;if(m==i)break;[a[m],a[i]]=[a[i],a[m]];i=m}}return t}}
+function buildGraph(els){const id=new Map(),lat=[],lon=[],adj=[];
+ const nid=(la,lo)=>{const k=la.toFixed(6)+','+lo.toFixed(6);let i=id.get(k);if(i===undefined){i=lat.length;id.set(k,i);lat.push(la);lon.push(lo);adj.push([])}return i};
+ for(const e of els){if(!e.geometry)continue;let p=-1;for(const g of e.geometry){const c=nid(g.lat,g.lon);if(p>=0&&p!==c){const w=hav(lat[p],lon[p],lat[c],lon[c]);adj[p].push([c,w]);adj[c].push([p,w])}p=c}}
+ return {lat,lon,adj}}
+function nearestNode(G,p,maxKm){let b=-1,bd=maxKm;for(let i=0;i<G.lat.length;i++){const d=hav(p.lat,p.lon,G.lat[i],G.lon[i]);if(d<bd){bd=d;b=i}}return b}
+function shortest(G,s,t){const dist=new Map([[s,0]]),prev=new Map(),h=new Heap();h.push(0,s);
+ while(h.n){const[d,u]=h.pop();if(u===t)break;if(d>(dist.get(u)??1e18))continue;
+  for(const[v,w]of G.adj[u]){const nd=d+w;if(nd<(dist.get(v)??1e18)){dist.set(v,nd);prev.set(v,u);h.push(nd,v)}}}
+ if(s!==t&&!prev.has(t))return null;const p=[];let c=t;while(c!==undefined){p.push([G.lat[c],G.lon[c]]);c=prev.get(c)}return p.reverse()}
+async function overpassRail(st){const co=st.map(p=>p.lat+','+p.lon).join(',');
+ const q='[out:json][timeout:40];way["railway"="rail"][!"service"](around:4000,'+co+');out geom;';
+ for(const u of ['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter']){
+  try{const c=new AbortController(),t=setTimeout(()=>c.abort(),40000);
+   const r=await fetch(u,{method:'POST',body:'data='+encodeURIComponent(q),signal:c.signal,headers:{'Content-Type':'application/x-www-form-urlencoded'}});clearTimeout(t);
+   if(!r.ok)continue;const j=await r.json();if(j.elements&&j.elements.length)return j.elements}catch(e){}}return null}
+async function roadLeg(a,b){if(hav(a[0],a[1],b[0],b[1])<1.2)return[a,b];
+ for(const base of['https://router.project-osrm.org','https://routing.openstreetmap.de/routed-car']){const p=await osrm(base,[{lat:a[0],lon:a[1]},{lat:b[0],lon:b[1]}]);if(p)return p}return[a,b]}
+async function railChunk(st){const els=await overpassRail(st);if(!els)return null;const G=buildGraph(els);
+ const ok=st.map(p=>({p,n:nearestNode(G,p,8)})).filter(x=>x.n>=0);if(ok.length<2)return null;
+ const rail=[];for(let i=0;i<ok.length-1;i++){const sg=shortest(G,ok[i].n,ok[i+1].n);
+  if(sg)rail.push(...sg);else rail.push([G.lat[ok[i].n],G.lon[ok[i].n]],[G.lat[ok[i+1].n],G.lon[ok[i+1].n]])}
+ return rail}
+async function realRail(){ /* small corridor requests (4 legs each) so the free Overpass servers can answer */
+ let el;const ld=L.control({position:'bottomleft'});ld.onAdd=()=>{el=L.DomUtil.create('div');el.style.cssText='background:#fffc;padding:3px 8px;border-radius:6px;font:12px sans-serif';el.textContent='Loading real railway line…';return el};ld.addTo(map);
+ try{const st=D.route,step=4,rail=[];let good=0,bad=0;
+  for(let i=0;i<st.length-1;i+=step){const ch=st.slice(i,Math.min(i+step+1,st.length));
+   el.textContent='Loading real railway line… '+(Math.floor(i/step)+1)+'/'+Math.ceil((st.length-1)/step);
+   let r=await railChunk(ch);if(r)good++;else{bad++;r=(await osrmVia(ch))||ch.map(p=>[p.lat,p.lon])}
+   rail.push(...r);await new Promise(z=>setTimeout(z,300))}
+  if(!good)return null;
+  const A=await roadLeg([D.from.lat,D.from.lon],rail[0]),B=await roadLeg(rail[rail.length-1],[D.to.lat,D.to.lon]);
+  return{segs:[{pts:A,dash:'8 8'},{pts:rail},{pts:B,dash:'8 8'}],all:[...A,...rail,...B],partial:bad>0}}
+ catch(e){return null}finally{ld.remove()}}
+async function snapPt(p){try{const r=await fetch('https://router.project-osrm.org/nearest/v1/driving/'+p.lon+','+p.lat);const j=await r.json();const w=j.waypoints&&j.waypoints[0];
+ if(j.code==='Ok'&&w&&w.distance>600&&w.distance<10000)return{...p,lat:w.location[1],lon:w.location[0]}}catch(e){}return p}
+function snapToPath(s,path){let b=null,bd=25;for(const q of path){const d=hav(s.lat,s.lon,q[0],q[1]);if(d<bd){bd=d;b=q}}return b?{...s,lat:b[0],lon:b[1]}:null}
+async function osrmVia(pts){ /* road-snapped path through every station: stays on land, follows the rail corridor */
+ const rad=pts.map(()=>5000).join(';'),co=pts.map(p=>p.lon+','+p.lat).join(';');
+ for(const b of ['https://router.project-osrm.org/route/v1/driving/','https://routing.openstreetmap.de/routed-car/route/v1/driving/']){
+  try{const r=await fetch(b+co+'?overview=full&geometries=geojson&radiuses='+rad);const j=await r.json();
+   if(j.code==='Ok'&&j.routes&&j.routes[0])return j.routes[0].geometry.coordinates.map(([x,y])=>[y,x])}catch(e){}}return null}
+async function railPath(){const st=D.route;if(st.length<2)return null;
+ let p=await osrmVia(st);if(p)return p;
+ p=await osrmVia(st.filter((_,i)=>i%2==0||i==st.length-1));if(p)return p;
+ const segs=await Promise.all(st.slice(1).map((b,i)=>osrmVia([st[i],b])));
+ if(!segs.some(Boolean))return null;
+ const out=[];segs.forEach((sg,i)=>{if(sg)out.push(...sg);else out.push([st[i].lat,st[i].lon],[st[i+1].lat,st[i+1].lon])});return out}
+async function osrm(base,pts){
+ try{const r=await fetch(base+'/route/v1/driving/'+pts.map(p=>p.lon+','+p.lat).join(';')+'?overview=full&geometries=geojson');
+  const j=await r.json();if(j.code==='Ok'&&j.routes&&j.routes[0])return j.routes[0].geometry.coordinates.map(([x,y])=>[y,x])}catch(e){}return null}
+async function road(){ /* exact road geometry, start -> end only (AI waypoints can be off-road and break routing) */
+ const bases=mode==='bike'?['https://routing.openstreetmap.de/routed-bike','https://router.project-osrm.org','https://routing.openstreetmap.de/routed-car']
+  :['https://router.project-osrm.org','https://routing.openstreetmap.de/routed-car'];
+ for(const b of bases){const p=await osrm(b,[D.from,D.to]);if(p&&p.length>2)return p}return null}
+function smooth(P,n=10){if(P.length<3)return P;const o=[];
+ for(let i=0;i<P.length-1;i++){const a=P[Math.max(i-1,0)],b=P[i],c=P[i+1],d=P[Math.min(i+2,P.length-1)];
+  for(let t=0;t<n;t++){const s=t/n,s2=s*s,s3=s2*s;o.push([0,1].map(k=>.5*(2*b[k]+(-a[k]+c[k])*s+(2*a[k]-5*b[k]+4*c[k]-d[k])*s2+(-a[k]+3*b[k]-3*c[k]+d[k])*s3)))}}
+ o.push(P[P.length-1]);return o}
 (async()=>{let path=null;
- if(mode=='flight')path=gc(D.from,D.to);else if(['pbus','prbus','bike','car'].includes(mode))path=await road();
- if(!path)path=D.route.map(p=>[p.lat,p.lon]);
- L.polyline(path,{color:'#ffffff',weight:9,opacity:.85,lineCap:'round',lineJoin:'round'}).addTo(map);
- L.polyline(path,{color:'#2f7bff',weight:5,opacity:1,lineCap:'round',lineJoin:'round'}).addTo(map);
+ let segs=null,note='';let approx=false;const noShip=mode=='ship'&&D.shipAvailable===false;
+ if(mode=='flight')path=gc(D.from,D.to);
+ else if((mode=='train'||mode=='ship')&&!noShip){const ship=mode=='ship',pts=ship?[D.from,...D.route,D.to]:D.route;if(!ship){const R=await realRail();if(R){segs=R.segs;path=R.all;note=R.partial?'Rail line (OpenStreetMap), some parts approximated · dashed = road link':'Real rail line (OpenStreetMap) · dashed = road to/from station'}}
+  if(!path){path=(!ship&&await railPath())||smooth(pts.map(p=>[p.lat,p.lon]));approx=true}
+  D.route.forEach((p,i)=>{if(p.name){const cm=L.circleMarker([p.lat,p.lon],{radius:4,color:'#2f7bff',weight:2,fillColor:'#fff',fillOpacity:1}).bindPopup((ship?'Port / waypoint: ':'Station: ')+esc(p.name)).addTo(map);
+   if(i==0||i==D.route.length-1)cm.bindTooltip(esc(p.name),{permanent:true,direction:'top'})}})}
+ else{path=await road();if(!path){path=D.route.map(p=>[p.lat,p.lon]);approx=true}}
+ if(approx||noShip||note){const c=L.control({position:'bottomleft'});c.onAdd=()=>{const d=L.DomUtil.create('div');d.style.cssText='background:#fffc;padding:3px 8px;border-radius:6px;font:12px sans-serif';d.textContent=note?note:noShip?'No ship route – showing land route':mode=='train'?'Railway data server busy: approximate line over land':mode=='ship'?'Sea route approximated through ports':'Road server busy – approximate path';return d};c.addTo(map)}
+ (segs||[{pts:path}]).forEach(sg=>{L.polyline(sg.pts,{color:'#ffffff',weight:9,opacity:.85,lineCap:'round',lineJoin:'round'}).addTo(map);
+  L.polyline(sg.pts,{color:'#2f7bff',weight:5,opacity:1,lineCap:'round',lineJoin:'round',dashArray:sg.dash||null}).addTo(map)});
  L.marker(midPt(path),{zIndexOffset:1000,icon:L.divIcon({className:'',html:`<div class="mkb">${X.icon}</div>`,iconSize:[40,40],iconAnchor:[20,20]})}).bindPopup('Mode: '+esc(X.label||'')).addTo(map);
+ const PL=await Promise.all((D.places||[]).map(snapPt)); /* keeps pins out of the sea */
+ const ST=(['bike','car','pbus'].includes(mode)&&!approx)?(D.stops||[]).map(s=>snapToPath(s,path)).filter(Boolean):(D.stops||[]);
  L.marker([D.from.lat,D.from.lon],{icon:pin('#f5b700','S')}).bindPopup('Start: '+esc(D.from.name)).addTo(map);
  L.marker([D.to.lat,D.to.lon],{icon:pin('#f5b700','E')}).bindPopup('Destination: '+esc(D.to.name)).addTo(map);
- (D.places||[]).forEach((p,i)=>L.marker([p.lat,p.lon],{icon:pin('#ff6b6b',i+1)}).bindPopup('<b>'+esc(p.name)+'</b><br>'+esc(p.why)).addTo(map));
- (D.stops||[]).forEach(p=>L.marker([p.lat,p.lon],{icon:pin('#3ddc97','•')}).bindPopup('<b>'+esc(p.name)+'</b><br>'+esc(p.why)).addTo(map));
- const all=[...path,...(D.places||[]).map(p=>[p.lat,p.lon]),...(D.stops||[]).map(p=>[p.lat,p.lon])].filter(p=>isFinite(p[0])&&isFinite(p[1]));
+ PL.forEach((p,i)=>L.marker([p.lat,p.lon],{icon:pin('#ff6b6b',i+1)}).bindPopup('<b>'+esc(p.name)+'</b><br>'+esc(p.why)).addTo(map));
+ ST.forEach(p=>L.marker([p.lat,p.lon],{icon:pin('#3ddc97','•')}).bindPopup('<b>'+esc(p.name)+'</b><br>'+esc(p.why)).addTo(map));
+ const all=[...path,...PL.map(p=>[p.lat,p.lon]),...ST.map(p=>[p.lat,p.lon])].filter(p=>isFinite(p[0])&&isFinite(p[1]));
  map.fitBounds(L.latLngBounds(all),{padding:[30,30]})})();
 </script>
