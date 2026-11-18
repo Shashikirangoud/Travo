@@ -20,6 +20,10 @@ MODES = {
     "car": ("🚗", "Car", "Own car drive: best road, tolls, rest breaks, driving time."),
 }
 
+CLASSES = {"All classes": None, "General / Second sitting (2S)": "2S", "Sleeper (SL)": "SL", "AC 3 Tier (3A)": "3A",
+           "AC 3 Economy (3E)": "3E", "AC 2 Tier (2A)": "2A", "AC First Class (1A)": "1A",
+           "Chair Car (CC)": "CC", "Executive Chair Car (EC)": "EC"}
+
 # ---------- secrets ----------
 def secret(name, default=None):
     # 1) Streamlit secrets (cwd/.streamlit or ~/.streamlit, or Cloud "Secrets")
@@ -87,21 +91,33 @@ st.markdown('<div class="gt-bar"><span>🌍 Travo</span></div>', unsafe_allow_ht
 with st.container(key="globe"):
     components.html(GLOBE_HTML.replace("__ARC__", json.dumps(arc)), height=1)
 with st.container(key="panel"):
-  with st.form("trip", clear_on_submit=False):   # Enter key submits; no "press Enter to apply" hint
     c1, c2, c3, c4, c5 = st.columns([2, 2, 1, 1, 2.2], vertical_alignment="bottom")
     src = c1.text_input("From", placeholder="From (city)", label_visibility="collapsed")
     dst = c2.text_input("To", placeholder="To (city)", label_visibility="collapsed")
     days = c3.number_input("Days (0 = any)", min_value=0, max_value=30, value=0)
     persons = c4.number_input("Persons", min_value=1, max_value=50, value=1)
     inc = c5.checkbox("Include travel in days", value=False)
-    st.pills("Transport", options=list(MODES), format_func=lambda k: f"{MODES[k][0]} {MODES[k][1]}",
-             selection_mode="single", default="train", key="mode", label_visibility="collapsed")
+    # Mode buttons in one row; the Train-class dropdown sits IMMEDIATELY after the Train button (only while Train is selected)
+    st.session_state.setdefault("mode", "train")
+    cur = st.session_state.mode
+    cls = "All classes"
+    def set_mode(k):
+        st.session_state.mode = k
+    with st.container(key="modes"):
+        cols = st.columns(len(MODES) + (1 if cur == "train" else 0))
+        i = 0
+        for k, (ic, lb, _) in MODES.items():
+            cols[i].button(f"{ic} {lb}", key=f"m_{k}", type="primary" if k == cur else "secondary", on_click=set_mode, args=(k,))
+            i += 1
+            if k == "train" and cur == "train":
+                cls = cols[i].selectbox("Train class", list(CLASSES), format_func=lambda c: "🎫 " + c, label_visibility="collapsed")
+                i += 1
     _l, _m, _r = st.columns([1.6, 1.2, 1.6])   # centre column = Plan button in the middle
-    go = _m.form_submit_button("✨ Plan", use_container_width=True)
+    go = _m.button("✨ Plan", key="planbtn", use_container_width=True)
 
 mode = st.session_state.get("mode") or "train"
 
-def build_prompt(f, t, mode, nd, inc, persons=1):
+def build_prompt(f, t, mode, nd, inc, persons=1, cls="All classes"):
     if nd:
         rule = (f"TOTAL TRIP = exactly {nd} days INCLUDING travel. Count the outbound and return journeys inside these {nd} days "
                 "(a long or overnight trip uses most of day 1 and the last day). Only plan sightseeing in the time that remains, "
@@ -122,6 +138,10 @@ def build_prompt(f, t, mode, nd, inc, persons=1):
         route_line = '"route":[{"lat":0,"lon":0}] (just start and end),'
     else:
         route_line = '"route":[{"lat":0,"lon":0}] (6-10 waypoints along the main highway, start to end),'
+    class_line = ""
+    if mode == "train":
+        class_line = ('"classFares":[{"class":"SL","fare":0}] (ONE-WAY fare per person in local currency, plain numbers, for EVERY class this route offers, using exactly these codes: 2S, SL, 3A, 3E, 2A, 1A, CC, EC),\n')
+        extra += f" The traveller selected class: {cls}. In legs[].fare mention that class. The budget transport item must use the {cls} fare for BOTH ways for every traveller."
     return f'''You are a travel API. Plan a trip from "{f}" to "{t}". Reply with ONE valid JSON object only.
 Transport mode: {MODES[mode][2]}
 Days: {rule}
@@ -133,7 +153,7 @@ Shape (keep strings short):
 {route_line}
 "stops":[{{"name":"","lat":0,"lon":0,"why":"","detourMin":0}}] (ONLY for own bike/car: 3-5 worthwhile stops directly on the route with detour under 15 min; else []),
 "places":[{{"name":"","lat":0,"lon":0,"why":"","timeNeeded":""}}] (8 must-visit places at the destination, by priority),
-{itin}
+{class_line}{itin}
 "budget":{{"currency":"₹","assumptions":"rooms, nights and hotel tier assumed","items":[{{"label":"","basis":"per_person|per_group","amount":0}}]}} (budget for {persons} traveller(s). Items: transport for the whole trip including return (per_person; for own bike/car use per_group for fuel and tolls), local transport at the destination (per_group), stay (per_group: Standard hotel rooms for the whole stay for {persons} people, give the number of rooms in assumptions), food (per_person for all days), entry tickets and activities (per_person), contingency of about 10 percent (per_group). amount is a plain number in the local currency: for per_person it is the cost of ONE person, for per_group the cost of the WHOLE group. Do NOT add totals),
 "stays":[{{"tier":"Budget|Standard|Comfort|Premium|Luxury","name":"","area":"","normal":"price per night","peak":"price per night"}}] (5 real hotels near the destination's main areas, low to high, local currency e.g. ₹ for India)}}
 Use accurate coordinates. Be realistic; if unsure about availability say "check live".'''
@@ -180,6 +200,8 @@ def normalize(p, mode=None):
     p["places"], p["stops"] = clean_points(p.get("places")), clean_points(p.get("stops"))
     for k in ("legs", "itinerary", "stays"):
         p[k] = [x for x in (p.get(k) or []) if isinstance(x, dict)]
+    p["classFares"] = [{"class": str(x.get("class", "")).upper().strip(), "fare": float(x["fare"])}
+                       for x in (p.get("classFares") or []) if isinstance(x, dict) and (num(x.get("fare")) or 0) > 0]
     b = p.get("budget") if isinstance(p.get("budget"), dict) else {}
     items = []
     for it in b.get("items") or []:
@@ -195,10 +217,10 @@ def parse_json(raw):
     return json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
 
 @st.cache_data(ttl=86400, show_spinner=False)  # same trip within 24 h = same plan, instant, no API call
-def generate_plan(f, t, mode, nd, inc, persons=1):
+def generate_plan(f, t, mode, nd, inc, persons=1, cls="All classes"):
     last = None
     for _ in range(2):  # one automatic retry if the AI returns broken JSON
-        raw = groq([{"role": "user", "content": build_prompt(f, t, mode, nd, inc, persons)}], True)
+        raw = groq([{"role": "user", "content": build_prompt(f, t, mode, nd, inc, persons, cls)}], True)
         try:
             return normalize(parse_json(raw), mode)
         except (ValueError, KeyError) as e:  # JSONDecodeError is a ValueError
@@ -213,8 +235,8 @@ if go:
     else:
         with st.spinner("🌐 Planning your trip… (10–30 s)"):
             try:
-                p = dict(generate_plan(src.strip(), dst.strip(), mode, int(days), inc, int(persons)))
-                p.update(_mode=mode, _days=int(days), _inc=inc, _persons=int(persons), _src=src.strip(), _dst=dst.strip())
+                p = dict(generate_plan(src.strip(), dst.strip(), mode, int(days), inc, int(persons), cls))
+                p.update(_mode=mode, _days=int(days), _inc=inc, _persons=int(persons), _cls=cls, _src=src.strip(), _dst=dst.strip())
                 st.session_state.plan, st.session_state.chat = p, []
                 st.rerun()
             except Exception as e:
@@ -259,6 +281,11 @@ def make_pdf(p):
     head("Transport")
     for l in p.get("legs", []):
         line(l.get("title", ""), 10, True); line(f"{l.get('detail','')} | {l.get('duration','')} | {l.get('fare','')}"); line("Availability: " + str(l.get("availability", "")))
+    if p.get("_mode") == "train" and p.get("classFares"):
+        n_ = max(1, int(p.get("_persons", 1))); code = CLASSES.get(p.get("_cls")); cur_ = p.get("budget", {}).get("currency", "₹")
+        line("Fare by class (per person, one way): " + ", ".join(f"{c['class']} {cur_} {c['fare']:,.0f}" for c in p["classFares"]), 10, True)
+        sel = next((c for c in p["classFares"] if c["class"] == code), None)
+        if sel: line(f"Selected {p.get('_cls')}: {cur_} {sel['fare']:,.0f} x {n_} = {cur_} {sel['fare'] * n_:,.0f} one way, {cur_} {sel['fare'] * n_ * 2:,.0f} both ways")
     if p.get("stops"):
         head("On-the-way stops")
         for s in p["stops"]: line(f"- {s['name']} (+{s.get('detourMin')} min): {s.get('why','')}")
@@ -297,6 +324,16 @@ if plan:
         st.markdown(f"**{icon} Transport plan**")
         for l in plan.get("legs", []):
             st.markdown(f"**{l.get('title','')}**  \n{l.get('detail','')}  \n⏱ {l.get('duration','')} · 💰 {l.get('fare','')}  \n_{l.get('availability','')}_")
+        cf = plan.get("classFares") or []
+        if pm == "train" and cf:
+            code, n_ = CLASSES.get(plan.get("_cls")), max(1, int(plan.get("_persons", 1)))
+            cur_ = str(plan.get("budget", {}).get("currency", "₹")).replace("$", "\\$")
+            st.markdown("**🎫 Fare by class (per person, one way)**")
+            st.markdown("| Class | Fare |\n|---|---:|\n" + "\n".join(
+                f"| {'**' + c['class'] + ' ✅**' if c['class'] == code else c['class']} | {cur_} {c['fare']:,.0f} |" for c in cf))
+            sel = next((c for c in cf if c["class"] == code), None)
+            if sel:
+                st.success(f"{plan.get('_cls')}: {cur_} {sel['fare']:,.0f} per person × {n_} = {cur_} {sel['fare'] * n_:,.0f} one way · {cur_} {sel['fare'] * n_ * 2:,.0f} both ways")
         if plan.get("stops"):
             st.markdown("**🟢 On-the-way stops (no real delay)**")
             for s in plan["stops"]: st.markdown(f"- **{s['name']}** (+{s.get('detourMin')} min) – {s.get('why','')}")

@@ -21,10 +21,18 @@ html,body{background:#050a1a!important}
 [data-testid="stPills"] button{background:rgba(5,10,26,.62)!important}
 
 /* Plan button: same pill style as the mode buttons, double size, centred */
-[data-testid="stFormSubmitButton"]{display:flex;justify-content:center;width:100%}
-[data-testid="stFormSubmitButton"] button{background:rgba(5,10,26,.62)!important;color:#eaf1ff!important;border:1px solid rgba(120,170,255,.45)!important;border-radius:999px!important;padding:.55rem 2.4rem!important;font-size:1.2rem!important;font-weight:600!important;min-height:0!important;width:100%!important;margin:.4rem auto 0!important}
-[data-testid="stFormSubmitButton"] button:hover{border-color:#37c6ff!important;color:#37c6ff!important}
+[data-testid="stFormSubmitButton"],.st-key-planbtn{display:flex;justify-content:center;width:100%}
+[data-testid="stFormSubmitButton"] button,.st-key-planbtn button{background:rgba(5,10,26,.62)!important;color:#eaf1ff!important;border:1px solid rgba(120,170,255,.45)!important;border-radius:999px!important;padding:.55rem 2.4rem!important;font-size:1.2rem!important;font-weight:600!important;min-height:0!important;width:100%!important;margin:.4rem auto 0!important}
+.st-key-planbtn button:hover{border-color:#37c6ff!important;color:#37c6ff!important}
 
 /* centre every button group (transport pills) */
 .st-key-panel [data-testid="stButtonGroup"],.st-key-panel [data-testid="stPills"]{display:flex;justify-content:center;width:100%}
 .st-key-panel [data-testid="stButtonGroup"]>div,.st-key-panel [data-testid="stPills"]>div{display:flex;flex-wrap:wrap;justify-content:center}
+
+/* mode buttons: one centred, wrapping row; selected = blue */
+.st-key-modes [data-testid="stHorizontalBlock"]{flex-direction:row!important;flex-wrap:wrap;justify-content:center;gap:.45rem}
+.st-key-modes [data-testid="stColumn"]{flex:0 0 auto!important;width:auto!important;min-width:0!important}
+.st-key-modes [data-testid="stColumn"]:has([data-testid="stSelectbox"]){width:215px!important}
+.st-key-modes button{background:rgba(5,10,26,.62)!important;color:#eaf1ff!important;border:1px solid rgba(120,170,255,.35)!important;border-radius:999px!important;padding:.2rem .9rem!important;min-height:0!important;font-size:.9rem!important;white-space:nowrap}
+.st-key-modes button:hover{border-color:#37c6ff!important}
+.st-key-modes [data-testid="stBaseButton-primary"],.st-key-modes button[kind="primary"]{background:#37c6ff!important;color:#04101f!important;border-color:#37c6ff!important;font-weight:600}
